@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GPT指示書アプリ ver1.16</title>
+
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#ffffff">
+
+<style>
+  /* ※明るさ調整・暗転は一切行わない（背景は常に白） */
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: #ffffff; color: #111111;
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
+    overflow: hidden;
+  }
+  #app {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    background: #ffffff;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+
+  /* タイトル行 */
+  #titleRow { display: flex; align-items: center; gap: 4px; padding: 3px 4px 2px 4px; flex: 0 0 auto; }
+  .menuBtn {
+    flex: 0 0 auto; width: 38px; height: 34px; border: 1px solid #cfcfcf; border-radius: 8px;
+    background: #f6f6f6; font-size: 20px; line-height: 1; color: #222; padding: 0;
+  }
+  #title {
+    flex: 1 1 auto; min-width: 0; height: 34px; border: none; outline: none;
+    font-size: 17px; font-weight: bold; text-align: center; background: #ffffff; color: #111;
+    padding: 0 4px;
+  }
+  #title::placeholder { color: #9a9a9a; font-weight: normal; }
+
+  /* ツールボタン（1列のみ） */
+  #toolRow { display: flex; flex-wrap: nowrap; gap: 3px; padding: 2px 4px; flex: 0 0 auto; overflow-x: auto; }
+  .toolBtn {
+    flex: 1 0 auto; white-space: nowrap; border: 1px solid #bdbdbd; border-radius: 7px;
+    background: #f2f2f2; color: #111; font-size: 13px; padding: 6px 7px; line-height: 1.1;
+  }
+  .toolBtn:active { background: #e0e0e0; }
+  #saveBtn.dirty { background: #ffe94d; border-color: #c9b000; }
+  #saveBtn.saved { background: #5fd07a; border-color: #2f9c4a; }
+
+  /* 編集エリア */
+  #editWrap { flex: 1 1 auto; min-height: 0; padding: 2px 4px; }
+  #editor {
+    width: 100%; height: 100%; resize: none; border: 1px solid #d6d6d6; border-radius: 6px;
+    padding: 6px; font-size: 16px; line-height: 1.5; background: #ffffff; color: #111; outline: none;
+    font-family: inherit;
+  }
+
+  /* 下部タブ */
+  #tabRow { display: flex; gap: 3px; padding: 2px 4px 3px 4px; flex: 0 0 auto; }
+  .tabBtn {
+    flex: 1 1 0; border: 1px solid #bdbdbd; border-radius: 7px; background: #f2f2f2;
+    font-size: 14px; padding: 6px 0; color: #111;
+  }
+  .tabBtn.active { background: #cfe3ff; border-color: #4a86d8; font-weight: bold; }
+
+  /* 背後ブロック用の透明レイヤー（暗くしない） */
+  #blocker { position: fixed; inset: 0; background: transparent; z-index: 50; display: none; touch-action: none; }
+  #blocker.on { display: block; }
+
+  /* スライドページ */
+  .drawer {
+    position: fixed; top: 0; bottom: 0; width: 82%; max-width: 340px; background: #ffffff; z-index: 60;
+    display: flex; flex-direction: column; visibility: hidden;
+    transition: transform .25s ease, visibility 0s linear .25s;
+    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px) 0;
+  }
+  .drawer.open { transform: translateX(0) !important; visibility: visible; transition: transform .25s ease, visibility 0s; }
+  #leftDrawer { left: 0; transform: translateX(-105%); border-right: 1px solid #bbb; box-shadow: 2px 0 8px rgba(0,0,0,.15); }
+  #rightDrawer { right: 0; transform: translateX(105%); border-left: 1px solid #bbb; box-shadow: -2px 0 8px rgba(0,0,0,.15); }
+  .drawerHead { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #ddd; flex: 0 0 auto; }
+  .drawerHead .ttl { font-weight: bold; font-size: 16px; }
+  .closeBtn { border: 1px solid #bdbdbd; border-radius: 7px; background: #f2f2f2; font-size: 14px; padding: 6px 10px; color: #111; }
+  #leftHead { justify-content: space-between; }
+  #rightHead { justify-content: flex-start; }
+  #docList { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .docItem {
+    padding: 12px 12px; border-bottom: 1px solid #eee; user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .docItem:active { background: #eef4ff; }
+  .docItem .dt { font-size: 15px; font-weight: bold; word-break: break-all; }
+  .docItem .dd { font-size: 11px; color: #888; margin-top: 2px; }
+  .empty { padding: 16px; color: #888; font-size: 14px; }
+  .linkBtns { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .linkBtn { border: 1px solid #bdbdbd; border-radius: 9px; background: #f2f2f2; font-size: 16px; padding: 14px 10px; color: #111; }
+  .linkBtn:active { background: #e0e0e0; }
+
+  /* 削除確認ウィンドウ（暗転なし） */
+  #dlg { position: fixed; inset: 0; z-index: 100; display: none; align-items: center; justify-content: center; background: transparent; }
+  #dlg.on { display: flex; }
+  #dlgBox { width: 80%; max-width: 320px; background: #fff; border: 1px solid #999; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.3); padding: 16px; }
+  #dlgMsg { font-size: 15px; margin-bottom: 14px; word-break: break-all; }
+  #dlgBtns { display: flex; gap: 8px; }
+  #dlgBtns button { flex: 1; padding: 10px 0; font-size: 15px; border-radius: 8px; border: 1px solid #bbb; background: #f2f2f2; color: #111; }
+  #dlgOk { background: #ffd6d6 !important; border-color: #d66 !important; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 120;
+    background: #e8e8e8; color: #111; border: 1px solid #aaa; padding: 7px 14px; border-radius: 16px;
+    font-size: 13px; display: none; max-width: 90%; text-align: center;
+  }
+  #toast.on { display: block; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="titleRow">
+    <button class="menuBtn" id="leftMenuBtn" aria-label="保存したドキュメント">☰</button>
+    <input id="title" type="text" placeholder="新しいドキュメント" autocomplete="off">
+    <button class="menuBtn" id="rightMenuBtn" aria-label="連携アプリ">☰</button>
+  </div>
+
+  <div id="toolRow">
+    <button class="toolBtn" id="saveBtn">保存</button>
+    <button class="toolBtn" id="selAllBtn">全選択</button>
+    <button class="toolBtn" id="copyBtn">コピー</button>
+    <button class="toolBtn" id="selLineBtn">行選択</button>
+    <button class="toolBtn" id="cutBtn">切取</button>
+    <button class="toolBtn" id="toMemoBtn">メモへ移動</button>
+  </div>
+
+  <div id="editWrap">
+    <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+  </div>
+
+  <div id="tabRow">
+    <button class="tabBtn active" data-tab="instr">指示書</button>
+    <button class="tabBtn" data-tab="memo1">メモ1</button>
+    <button class="tabBtn" data-tab="memo2">メモ2</button>
+  </div>
+</div>
+
+<!-- 背後の編集画面へのタッチを禁止するレイヤー -->
+<div id="blocker"></div>
+
+<!-- 左：保存したドキュメント -->
+<div class="drawer" id="leftDrawer">
+  <div class="drawerHead" id="leftHead">
+    <span class="ttl">保存したドキュメント</span>
+    <button class="closeBtn" id="leftClose">閉じる</button>
+  </div>
+  <div id="docList"></div>
+</div>
+
+<!-- 右：連携アプリ -->
+<div class="drawer" id="rightDrawer">
+  <div class="drawerHead" id="rightHead">
+    <button class="closeBtn" id="rightClose">閉じる</button>
+    <span class="ttl">連携アプリ</span>
+  </div>
+  <div class="linkBtns">
+    <button class="linkBtn" id="gptBtn">チャットGPTへ転送</button>
+    <button class="linkBtn" id="geminiBtn">Geminiへ転送</button>
+    <button class="linkBtn" id="spokBtn">Spokエディター起動</button>
+  </div>
+</div>
+
+<!-- 削除確認 -->
+<div id="dlg">
+  <div id="dlgBox">
+    <div id="dlgMsg"></div>
+    <div id="dlgBtns">
+      <button id="dlgCancel">キャンセル</button>
+      <button id="dlgOk">削除</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ===== 設定 ===== */
+  var STORAGE_KEY = 'gpt_shijisho_docs_v1';
+  var EDGE_PX = 20;                         // スワイプ開始位置は画面端20px以内
+  var SWIPE_MIN = 50;                       // スワイプ判定の最小移動量
+  var LONG_PRESS_MS = 600;                  // 長押し判定
+  var CHATGPT_URL = 'https://chatgpt.com/';
+  var GEMINI_URL  = 'https://gemini.google.com/app';
+  var SPOK_EDITOR_URL = 'spok://';          // ★Spokエディターの起動URLに合わせて変更してください
+  var TAB_NAMES = { instr: '指示書', memo1: 'メモ1', memo2: 'メモ2' };
+
+  /* ===== 状態 ===== */
+  var data = { instr: '', memo1: '', memo2: '' };   // 3つの編集エリアは1つのドキュメント
+  var curTab = 'instr';                              // 最初は指示書
+  var openDrawer = null;                             // null / 'L' / 'R'（同時に開かない）
+  var docs = {};                                     // 保存済みドキュメント
+  var memStore = null;                               // localStorage不可時の代替
+
+  var $ = function (id) { return document.getElementById(id); };
+  var ta = $('editor');
+  var titleEl = $('title');
+  var saveBtn = $('saveBtn');
+
+  /* ===== 保存領域 ===== */
+  function loadDocs() {
+    try {
+      var s = window.localStorage.getItem(STORAGE_KEY);
+      docs = s ? JSON.parse(s) : {};
+    } catch (e) {
+      docs = memStore || {};
+    }
+    if (!docs || typeof docs !== 'object') docs = {};
+  }
+  function persistDocs() {
+    memStore = docs;
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(docs)); } catch (e) {}
+  }
+
+  /* ===== 保存ボタンの状態 ===== */
+  function setSaveState(state) {
+    saveBtn.classList.remove('dirty', 'saved');
+    if (state === 'dirty') saveBtn.classList.add('dirty');       // 編集中＝黄色
+    if (state === 'saved') saveBtn.classList.add('saved');       // 保存済＝緑色
+  }
+  function markDirty() { setSaveState('dirty'); }
+
+  /* ===== トースト ===== */
+  var toastTimer = null;
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('on'); }, 1800);
+  }
+
+  /* ===== 編集エリア切替 ===== */
+  function syncCurrent() { data[curTab] = ta.value; }
+  function showTab(tab) {
+    syncCurrent();                       // 切替では保存しない・別ドキュメント扱いにしない
+    curTab = tab;
+    ta.value = data[tab];
+    var btns = document.querySelectorAll('.tabBtn');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('active', btns[i].getAttribute('data-tab') === tab);
+    }
+    ta.scrollTop = 0;
+  }
+  var tabBtns = document.querySelectorAll('.tabBtn');
+  for (var i = 0; i < tabBtns.length; i++) {
+    tabBtns[i].addEventListener('click', function () { showTab(this.getAttribute('data-tab')); });
+  }
+
+  ta.addEventListener('input', function () { data[curTab] = ta.value; markDirty(); });
+  titleEl.addEventListener('input', markDirty);
+
+  /* ===== コピー（フォールバック付き） ===== */
+  function fallbackCopy(text) {
+    var ok = false;
+    var prev = document.activeElement;
+    var tmp = document.createElement('textarea');
+    tmp.value = text;
+    tmp.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+    document.body.appendChild(tmp);
+    tmp.focus(); tmp.select();
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(tmp);
+    if (prev && prev.focus) { try { prev.focus(); } catch (e) {} }
+    return ok;
+  }
+  function copyText(text) {
+    return new Promise(function (resolve) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { resolve(true); },
+          function () { resolve(fallbackCopy(text)); });
+      } else {
+        resolve(fallbackCopy(text));
+      }
+    });
+  }
+
+  /* ===== ツールボタン ===== */
+  function getSel() { return { s: ta.selectionStart, e: ta.selectionEnd }; }
+  function restoreSel(s, e) { ta.focus(); try { ta.setSelectionRange(s, e); } catch (x) {} }
+
+  // 保存
+  saveBtn.addEventListener('click', function () {
+    syncCurrent();
+    var title = titleEl.value.trim();
+    if (!title) {
+      // 空欄扱い → 指示書の一番上の行を自動でタイトルにする
+      var first = (data.instr || '').split(/\r?\n/)[0].trim();
+      title = first || '無題';
+      if (title.length > 60) title = title.substring(0, 60);
+      titleEl.value = title;
+    }
+    docs[title] = { title: title, instr: data.instr, memo1: data.memo1, memo2: data.memo2, updated: Date.now() };
+    persistDocs();
+    setSaveState('saved');
+    toast('保存しました：' + title);
+  });
+
+  // 全選択
+  $('selAllBtn').addEventListener('click', function () {
+    ta.focus();
+    ta.setSelectionRange(0, ta.value.length);
+  });
+
+  // コピー
+  $('copyBtn').addEventListener('click', function () {
+    var r = getSel();
+    if (r.s === r.e) { toast('範囲が選択されていません'); return; }
+    var text = ta.value.substring(r.s, r.e);
+    copyText(text).then(function (ok) {
+      restoreSel(r.s, r.e);
+      toast(ok ? 'コピーしました' : 'コピーに失敗しました');
+    });
+  });
+
+  // 行選択
+  $('selLineBtn').addEventListener('click', function () {
+    var v = ta.value;
+    var pos = ta.selectionStart;
+    var start = v.lastIndexOf('\n', pos - 1) + 1;
+    var end = v.indexOf('\n', pos);
+    end = (end === -1) ? v.length : end + 1;   // 改行も含めて選択
+    ta.focus();
+    ta.setSelectionRange(start, end);
+  });
+
+  // 切取
+  $('cutBtn').addEventListener('click', function () {
+    var r = getSel();
+    if (r.s === r.e) { toast('範囲が選択されていません'); return; }
+    var text = ta.value.substring(r.s, r.e);
+    copyText(text).then(function (ok) {
+      ta.focus();
+      ta.setRangeText('', r.s, r.e, 'end');
+      data[curTab] = ta.value;
+      markDirty();
+      toast(ok ? '切り取りました' : 'コピーに失敗（範囲は削除済み）');
+    });
+  });
+
+  // メモへ移動（指示書の選択範囲 → メモ1の最後尾の行を改行してから追加）
+  $('toMemoBtn').addEventListener('click', function () {
+    if (curTab !== 'instr') { toast('「指示書」で範囲を選択してください'); return; }
+    var r = getSel();
+    if (r.s === r.e) { toast('範囲が選択されていません'); return; }
+    var text = ta.value.substring(r.s, r.e);
+    ta.setRangeText('', r.s, r.e, 'end');
+    data.instr = ta.value;
+    var memo = data.memo1;
+    if (memo.length > 0 && memo.charAt(memo.length - 1) !== '\n') memo += '\n';
+    data.memo1 = memo + text;
+    markDirty();
+    ta.focus();
+    toast('メモ1へ移動しました');
+  });
+
+  /* ===== 保存済みドキュメント一覧 ===== */
+  function fmtDate(t) {
+    var d = new Date(t);
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '/' + p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  var dlgTarget = null;
+  function askDelete(title) {
+    dlgTarget = title;
+    $('dlgMsg').textContent = '「' + title + '」を削除しますか？';
+    $('dlg').classList.add('on');
+  }
+  function closeDlg() { $('dlg').classList.remove('on'); dlgTarget = null; }
+  $('dlgCancel').addEventListener('click', closeDlg);
+  $('dlgOk').addEventListener('click', function () {
+    if (dlgTarget !== null) {
+      delete docs[dlgTarget];
+      persistDocs();
+      renderList();
+      toast('削除しました');
+    }
+    closeDlg();
+  });
+
+  function loadDoc(title) {
+    var d = docs[title];
+    if (!d) return;
+    data = { instr: d.instr || '', memo1: d.memo1 || '', memo2: d.memo2 || '' };
+    titleEl.value = d.title;
+    showTabForce('instr');
+    setSaveState('saved');
+  }
+  function showTabForce(tab) {
+    curTab = tab;
+    ta.value = data[tab];
+    var btns = document.querySelectorAll('.tabBtn');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('active', btns[i].getAttribute('data-tab') === tab);
+    }
+    ta.scrollTop = 0;
+  }
+
+  function renderList() {
+    var box = $('docList');
+    box.innerHTML = '';
+    var arr = Object.keys(docs).map(function (k) { return docs[k]; });
+    arr.sort(function (a, b) { return (b.updated || 0) - (a.updated || 0); });   // 更新順
+    if (arr.length === 0) {
+      var em = document.createElement('div');
+      em.className = 'empty';
+      em.textContent = '保存したドキュメントはありません';
+      box.appendChild(em);
+      return;
+    }
+    arr.forEach(function (d) {
+      var item = document.createElement('div');
+      item.className = 'docItem';
+      var t = document.createElement('div'); t.className = 'dt'; t.textContent = d.title;
+      var s = document.createElement('div'); s.className = 'dd'; s.textContent = fmtDate(d.updated || 0);
+      item.appendChild(t); item.appendChild(s);
+
+      var timer = null, fired = false, sx = 0, sy = 0;
+      item.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+      item.addEventListener('pointerdown', function (e) {
+        fired = false; sx = e.clientX; sy = e.clientY;
+        clearTimeout(timer);
+        timer = setTimeout(function () { fired = true; askDelete(d.title); }, LONG_PRESS_MS);
+      });
+      item.addEventListener('pointermove', function (e) {
+        if (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10) clearTimeout(timer);
+      });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
+        item.addEventListener(ev, function () { clearTimeout(timer); });
+      });
+      item.addEventListener('click', function () {
+        if (fired) { fired = false; return; }   // 長押し後のタップは無視
+        loadDoc(d.title);
+        closeAll();
+      });
+      box.appendChild(item);
+    });
+  }
+
+  /* ===== スライドページ開閉 ===== */
+  var leftD = $('leftDrawer'), rightD = $('rightDrawer'), blocker = $('blocker');
+
+  function openLeft() {
+    if (openDrawer) return;                 // 左右は同時に開かない
+    syncCurrent();
+    renderList();
+    openDrawer = 'L';
+    leftD.classList.add('open');
+    blocker.classList.add('on');            // 背後の編集画面へのタッチ禁止
+    ta.blur(); titleEl.blur();
+  }
+  function openRight() {
+    if (openDrawer) return;
+    syncCurrent();
+    openDrawer = 'R';
+    rightD.classList.add('open');
+    blocker.classList.add('on');
+    ta.blur(); titleEl.blur();
+  }
+  function closeAll() {
+    leftD.classList.remove('open');
+    rightD.classList.remove('open');
+    blocker.classList.remove('on');
+    openDrawer = null;
+  }
+
+  $('leftMenuBtn').addEventListener('click', openLeft);
+  $('rightMenuBtn').addEventListener('click', openRight);
+  $('leftClose').addEventListener('click', closeAll);
+  $('rightClose').addEventListener('click', closeAll);
+
+  // 背後レイヤーはタッチを吸収するだけ（閉じない・編集画面に届かない）
+  ['touchstart', 'touchmove', 'touchend', 'click', 'mousedown'].forEach(function (ev) {
+    blocker.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); }, { passive: false });
+  });
+
+  /* ===== スワイプ処理 ===== */
+  var tx = 0, ty = 0, edge = null, handled = false;
+
+  // 開く：画面端20px以内から
+  document.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 1) { edge = null; return; }
+    var t = e.touches[0];
+    tx = t.clientX; ty = t.clientY; handled = false; edge = null;
+    if (openDrawer) return;
+    var w = window.innerWidth;
+    if (tx <= EDGE_PX) edge = 'L';
+    else if (tx >= w - EDGE_PX) edge = 'R';
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function (e) {
+    if (!edge || handled || openDrawer) return;
+    var t = e.touches[0];
+    var dx = t.clientX - tx, dy = t.clientY - ty;
+    if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (edge === 'L' && dx > 0) { handled = true; openLeft(); }       // 左端から右へ
+    else if (edge === 'R' && dx < 0) { handled = true; openRight(); } // 右端から左へ
+  }, { passive: true });
+
+  document.addEventListener('touchend', function () { edge = null; }, { passive: true });
+
+  // 閉じる：スライドページ内で、開いた方向と逆へスワイプ
+  function attachCloseSwipe(el, dir) {   // dir: 'left' = 左へスワイプで閉じる / 'right' = 右へ
+    var sx = 0, sy = 0;
+    el.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) return;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+    }, { passive: true });
+    el.addEventListener('touchend', function (e) {
+      var t = e.changedTouches[0];
+      var dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) < SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      if (dir === 'left' && dx < 0) closeAll();
+      if (dir === 'right' && dx > 0) closeAll();
+    }, { passive: true });
+  }
+  attachCloseSwipe(leftD, 'left');     // 保存したドキュメント：左へスワイプで閉じる
+  attachCloseSwipe(rightD, 'right');   // 連携アプリ：右へスワイプで閉じる
+
+  /* ===== 連携アプリ ===== */
+  function transfer(url, name) {
+    syncCurrent();
+    var text = data.instr;                       // 指示書の全文
+    copyText(text);                              // コピー（編集画面はそのまま残す）
+    window.open(url, '_blank');                  // 新しいタブで開く
+    toast('指示書をコピーしました。' + name + 'に貼り付けてください');
+    closeAll();
+  }
+  $('gptBtn').addEventListener('click', function () { transfer(CHATGPT_URL, 'ChatGPT'); });
+  $('geminiBtn').addEventListener('click', function () { transfer(GEMINI_URL, 'Gemini'); });
+  $('spokBtn').addEventListener('click', function () {
+    closeAll();
+    window.open(SPOK_EDITOR_URL, '_blank');
+  });
+
+  /* ===== 初期化 ===== */
+  loadDocs();
+  showTabForce('instr');
+  setSaveState('none');
+})();
+</script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register(
+      "./service-worker.js"
+    ).catch(error => {
+      console.error("登録エラー:", error);
+    });
+  });
+}
+</script>
+
+</body>
+</html>
